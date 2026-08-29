@@ -9,7 +9,7 @@ venv/
 htmlcov/
 node_modules/
 dist/
-build/
+build/ 
 .DS_Store
 *.log
 .terraform/
