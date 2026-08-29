@@ -1,19 +1,18 @@
-import time
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import httpx
-
+import time
 from app.core.inference import inference_client
+from app.core.auth import get_current_client
+from app.core.models import Client
 
 router = APIRouter()
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(payload: dict):
+async def chat_completions(payload: dict, client: Client = Depends(get_current_client)):
     """
-    Milestone 1: prove the round trip works.
-    Client -> Forge -> Ollama -> Llama -> Forge -> Client
-    No auth, no rate limiting, no logging yet - those come in later branches.
+    Same proxy as before, except now you actually need to prove you're
+    someone before the model will talk to you.
     """
     start = time.perf_counter()
 

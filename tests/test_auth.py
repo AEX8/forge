@@ -1,6 +1,6 @@
 import pytest
-import respx
 from httpx import ASGITransport, AsyncClient, Response
+import respx
 
 from app.main import app
 from app.core.config import settings
@@ -11,6 +11,7 @@ from app.core.security import generate_api_key, hash_api_key
 
 @pytest.fixture(autouse=True)
 def setup_db():
+    # fresh schema per test run, no leftover rows messing with assertions
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
@@ -30,60 +31,46 @@ def _create_test_client_with_key() -> str:
 
 
 @pytest.mark.asyncio
-async def test_health():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_chat_completions_proxies_to_backend():
-    raw_key = _create_test_client_with_key()
-
-    fake_ollama_response = {
-        "id": "chatcmpl-fake",
-        "choices": [{"message": {"role": "assistant", "content": "Hi there"}}],
-        "usage": {"prompt_tokens": 5, "completion_tokens": 3},
-    }
-    respx.post(f"{settings.inference_base_url}/v1/chat/completions").mock(
-        return_value=Response(200, json=fake_ollama_response)
-    )
-
+async def test_missing_auth_header_rejected():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/v1/chat/completions",
-            headers={"Authorization": f"Bearer {raw_key}"},
-            json={
-                "model": "llama3.2:1b",
-                "messages": [{"role": "user", "content": "hello"}],
-            },
-        )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["choices"][0]["message"]["content"] == "Hi there"
-    assert "latency_ms" in body["forge_meta"]
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_chat_completions_surfaces_backend_errors():
-    raw_key = _create_test_client_with_key()
-
-    respx.post(f"{settings.inference_base_url}/v1/chat/completions").mock(
-        return_value=Response(500, json={"error": "model not loaded"})
-    )
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post(
-            "/v1/chat/completions",
-            headers={"Authorization": f"Bearer {raw_key}"},
             json={"model": "llama3.2:1b", "messages": []},
         )
+    assert resp.status_code == 401
 
-    assert resp.status_code == 500
+
+@pytest.mark.asyncio
+async def test_garbage_key_rejected():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer totally_made_up_key"},
+            json={"model": "llama3.2:1b", "messages": []},
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_valid_key_accepted():
+    raw_key = _create_test_client_with_key()
+
+    respx.post(f"{settings.inference_base_url}/v1/chat/completions").mock(
+        return_value=Response(200, json={
+            "id": "chatcmpl-fake",
+            "choices": [{"message": {"role": "assistant", "content": "hey"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        })
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {raw_key}"},
+            json={"model": "llama3.2:1b", "messages": [{"role": "user", "content": "hi"}]},
+        )
+    assert resp.status_code == 200

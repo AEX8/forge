@@ -5,8 +5,10 @@ services:
       - "8000:8000"
     environment:
       - INFERENCE_BASE_URL=http://ollama:11434
+      - DATABASE_URL=postgresql://forge:forge@postgres:5432/forge
     depends_on:
       - ollama
+      - postgres
     volumes:
       - ./app:/app/app
 
@@ -17,5 +19,18 @@ services:
     volumes:
       - ollama_data:/root/.ollama
 
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=forge
+      - POSTGRES_PASSWORD=forge
+      - POSTGRES_DB=forge
+      
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   ollama_data:
+  postgres_data:
