@@ -6,9 +6,11 @@ services:
     environment:
       - INFERENCE_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://forge:forge@postgres:5432/forge
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - ollama
       - postgres
+      - redis
     volumes:
       - ./app:/app/app
 
@@ -30,6 +32,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
 volumes:
   ollama_data:

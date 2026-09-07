@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     inference_base_url: str = "http://localhost:11434"
     inference_backend: str = "ollama"
     database_url: str = "postgresql://forge:forge@localhost:5432/forge"
-    
+    redis_url: str = "redis://localhost:6379/0" 
     model_config = SettingsConfigDict(env_file=".env")
 
 
