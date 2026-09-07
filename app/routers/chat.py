@@ -4,16 +4,19 @@ import time
 from app.core.inference import inference_client
 from app.core.auth import get_current_client
 from app.core.models import Client
+from app.core.rate_limiter import check_rate_limit
 
 router = APIRouter()
 
 
 @router.post("/v1/chat/completions")
 async def chat_completions(payload: dict, client: Client = Depends(get_current_client)):
-    """
-    Same proxy as before, except now you actually need to prove you're
-    someone before the model will talk to you.
-    """
+    if not check_rate_limit(str(client.id)):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded, slow down a little",
+        )
+
     start = time.perf_counter()
 
     try:
