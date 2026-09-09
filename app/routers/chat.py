@@ -5,6 +5,7 @@ from app.core.inference import inference_client
 from app.core.auth import get_current_client
 from app.core.models import Client
 from app.core.rate_limiter import check_rate_limit
+from app.core.prompt_risk import assess_payload, RiskLevel
 
 router = APIRouter()
 
@@ -16,6 +17,14 @@ async def chat_completions(payload: dict, client: Client = Depends(get_current_c
             status_code=429,
             detail="Rate limit exceeded, slow down a little",
         )
+
+    risk = assess_payload(payload)
+    if risk.level == RiskLevel.HIGH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Request blocked: {risk.reason}",
+        )
+    # MEDIUM passes through for now, we'll log it once usage_logs exists (next branch)
 
     start = time.perf_counter()
 
