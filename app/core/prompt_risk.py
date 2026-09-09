@@ -18,7 +18,7 @@ class RiskAssessment:
 # each pattern is (regex, risk level, human-readable reason)
 # case insensitive since nobody's typing jailbreaks in properly capitalized english
 _PATTERNS: list[tuple[re.Pattern, RiskLevel, str]] = [
-    (re.compile(r"ignore (all|any|previous|the above)\s+instructions", re.I), RiskLevel.HIGH, "instruction override attempt"),
+    (re.compile(r"ignore\s+(all\s+|any\s+|previous\s+|prior\s+|the above\s+)*instructions", re.I), RiskLevel.HIGH, "instruction override attempt"),
     (re.compile(r"disregard (your|all|any)\s+(previous|prior)\s+(instructions|rules)", re.I), RiskLevel.HIGH, "instruction override attempt"),
     (re.compile(r"you are now|you're now|act as if you", re.I), RiskLevel.MEDIUM, "role reassignment attempt"),
     (re.compile(r"reveal your (system prompt|instructions|rules)", re.I), RiskLevel.HIGH, "system prompt extraction attempt"),
