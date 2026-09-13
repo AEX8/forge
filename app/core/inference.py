@@ -1,15 +1,10 @@
 import httpx
+from typing import AsyncGenerator
 
 from app.core.config import settings
 
 
 class InferenceClient:
-    """
-    Wraps whatever's running at INFERENCE_BASE_URL.
-    Ollama and vLLM both expose an OpenAI-compatible /v1/chat/completions
-    endpoint, so this class never needs to know which one it's calling.
-    """
-
     def __init__(self, base_url: str | None = None):
         self.base_url = (base_url or settings.inference_base_url).rstrip("/")
 
@@ -21,6 +16,19 @@ class InferenceClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def chat_completion_stream(self, payload: dict) -> AsyncGenerator[bytes, None]:
+        # different beast entirely, we're handing chunks back as they arrive
+        # instead of waiting around for the whole response like a normal person
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    yield chunk
 
 
 inference_client = InferenceClient()
