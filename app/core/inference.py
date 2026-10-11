@@ -17,18 +17,20 @@ class InferenceClient:
             response.raise_for_status()
             return response.json()
 
-    async def chat_completion_stream(self, payload: dict) -> AsyncGenerator[bytes, None]:
-        # different beast entirely, we're handing chunks back as they arrive
-        # instead of waiting around for the whole response like a normal person
+    async def chat_completion_stream(self, payload: dict) -> AsyncGenerator[str, None]:
+        # ollama talks SSE here, so we hand back whole lines instead of byte soup.
+        # aiter_bytes happily slices a "data: {...}" line in half, json.loads wasnt nice
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/v1/chat/completions",
                 json=payload,
             ) as response:
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes():
-                    yield chunk
-
+                if response.is_error:
+                    await response.aread() 
+                    response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line: 
+                        yield line
 
 inference_client = InferenceClient()
