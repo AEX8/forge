@@ -85,7 +85,12 @@ async def chat_completions(
         raise HTTPException(status_code=400, detail=f"Request blocked: {risk.reason}")
 
     if payload.get("stream"):
-        return StreamingResponse(_stream_and_log(payload, db, api_key.id, risk), media_type="application/x-ndjson",)
+        # ask Ollama to send a final usage chunk so we can log token counts
+        payload["stream_options"] = {"include_usage": True}
+        return StreamingResponse(
+            _stream_and_log(payload, api_key.id, risk),
+            media_type="text/event-stream",
+        )
 
     start = time.perf_counter()
 
