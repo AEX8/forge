@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-import httpx, time
+import httpx, time, json
+from fastapi.responses import StreamingResponse
+
 
 from app.core.inference import inference_client
 from app.core.auth import get_current_client
@@ -8,10 +10,59 @@ from app.core.models import Client, ApiKey
 from app.core.rate_limiter import check_rate_limit
 from app.core.prompt_risk import assess_payload, RiskLevel
 from app.core.usage import log_usage
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 
 router = APIRouter()
 
+def _sse_error(message: str) -> str:
+    # headers already left as 200, so the only way to go oops now is inside the stream
+    return f"data: {json.dumps({'error': {'message': message}})}\n\n"
+
+
+async def _stream_and_log(payload: dict, api_key_id, risk):
+    """
+    Pipes ollama's SSE lines straight to the client and grabs token counts from
+    the final usage chunk (we ask for it with stream_options.include_usage).
+    """
+    start = time.perf_counter()
+    tokens_in = None
+    tokens_out = None
+    status_code = 200
+
+    try:
+        async for line in inference_client.chat_completion_stream(payload):
+            yield f"{line}\n\n"
+
+            if not line.startswith("data: ") or line == "data: [DONE]":
+                continue
+            try:
+                usage = json.loads(line[len("data: "):]).get("usage")
+            except json.JSONDecodeError:
+                continue 
+            if usage:
+                tokens_in = usage.get("prompt_tokens")
+                tokens_out = usage.get("completion_tokens")
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        yield _sse_error(f"Inference backend error: {exc.response.text}")
+    except httpx.RequestError as exc:
+        status_code = 502
+        yield _sse_error(f"Could not reach inference backend: {exc}")
+    finally:
+        # get_db already closed its session by the time we stream, so bring our own
+        db = SessionLocal()
+        try:
+            log_usage(
+                db, api_key_id, status_code=status_code,
+                model_used=payload.get("model"),
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=round((time.perf_counter() - start) * 1000),
+                flagged=(risk.level == RiskLevel.MEDIUM),
+                flagged_reason=risk.reason if risk.level == RiskLevel.MEDIUM else None,
+            )
+        finally:
+            db.close()
 
 @router.post("/v1/chat/completions")
 async def chat_completions(
@@ -19,7 +70,7 @@ async def chat_completions(
     client: Client = Depends(get_current_client),
     db: Session = Depends(get_db),
 ):
-    # we need the api_key row, not just the client, since usage_logs tracks per-key not per-client (a client could have multiple keys someday)
+    # we need the api_key row not just the client, since usage_logs tracks per-key not per-client (a client could have multiple keys someday)
     api_key = client.api_keys[0]
 
     if not check_rate_limit(str(client.id)):
@@ -32,6 +83,14 @@ async def chat_completions(
             flagged=True, flagged_reason=risk.reason,
         )
         raise HTTPException(status_code=400, detail=f"Request blocked: {risk.reason}")
+
+    if payload.get("stream"):
+        # ask Ollama to send a final usage chunk so we can log token counts
+        payload["stream_options"] = {"include_usage": True}
+        return StreamingResponse(
+            _stream_and_log(payload, api_key.id, risk),
+            media_type="text/event-stream",
+        )
 
     start = time.perf_counter()
 
