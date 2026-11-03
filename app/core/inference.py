@@ -18,19 +18,23 @@ class InferenceClient:
             return response.json()
 
     async def chat_completion_stream(self, payload: dict) -> AsyncGenerator[str, None]:
-        # ollama talks SSE here, so we hand back whole lines instead of byte soup.
-        # aiter_bytes happily slices a "data: {...}" line in half, json.loads wasnt nice
+        # force streaming on and ask for token counts in the last chunk,
+        # otherwise we stream a whole essay and have no idea what it cost
+        stream_payload = {
+            **payload,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/v1/chat/completions",
-                json=payload,
+                json=stream_payload,
             ) as response:
-                if response.is_error:
-                    await response.aread() 
-                    response.raise_for_status()
+                response.raise_for_status()
+                # aiter_lines stitches split chunks back into whole lines for us
                 async for line in response.aiter_lines():
-                    if line: 
+                    if line:
                         yield line
 
 inference_client = InferenceClient()
