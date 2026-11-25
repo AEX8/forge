@@ -51,6 +51,12 @@ docker compose up -d postgres redis
 pytest -v
 ```
 
+Tests run against a separate `forge_test` database and Redis db 1, so they never touch dev data. A fresh Postgres volume creates `forge_test` automatically. On an existing volume, create it once:
+
+```bash
+docker compose exec postgres createdb -U forge forge_test
+```
+
 ## Known limitations
 
 - **Ollama runs CPU-only inside Docker on Apple Silicon.** Docker Desktop's Linux VM doesn't get Metal GPU passthrough, so containerized inference is noticeably slower than running Ollama natively. This is a known, accepted tradeoff for local development; production targets GPU-backed infrastructure.
